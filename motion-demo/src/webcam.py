@@ -520,9 +520,36 @@ def draw_game_ui(image):
         pose_name = game_state['current_pose'].upper().replace('_', ' ')
         cv.putText(image, f"TIME: {remaining_time:.1f}s", (10, 240), cv.FONT_HERSHEY_SIMPLEX, 1, (93, 54, 145), 3)
 
-        # Show reference image
-        if pose_images[game_state['current_pose']] is not None:
-            cv.imshow(f"meme: {pose_name}", pose_images[game_state['current_pose']])
+        # Show reference image in a separate window at original resolution to the right of the main feed
+        img = pose_images[game_state['current_pose']]
+        if img is not None:
+            win_name = f"Challenge: {pose_name}"
+
+            # Create a resizable window and set it to the image's original resolution so
+            # the reference does not get scaled down/up (keeps original resolution).
+            cv.namedWindow(win_name, cv.WINDOW_NORMAL)
+            try:
+                h, w = img.shape[:2]
+            except Exception:
+                # Fallback sizes if shape is unexpected
+                h, w = 360, 640
+
+            # Set window size to match image original dimensions
+            try:
+                cv.resizeWindow(win_name, w, h)
+            except cv.error:
+                pass
+
+            # Show the image in the named window
+            cv.imshow(win_name, img)
+
+            # Move the window to the right of the main camera feed to avoid blocking the user.
+            try:
+                main_width = image.shape[1] if image is not None else 800
+                cv.moveWindow(win_name, main_width + 10, 50)
+            except cv.error:
+                # If platform doesn't support window moving (Wayland, etc.), ignore silently.
+                pass
 
     elif game_state['game_phase'] == 'result':
         elapsed_time = current_time - game_state['pose_start_time']
