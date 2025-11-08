@@ -26,9 +26,10 @@ last_results = None  # Store the last MediaPipe results
 print(cap.get(cv.CAP_PROP_FRAME_WIDTH))
 print(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
-# Grab Pose and Hand Models from MediaPipe
+# Grab Pose, Hand, and Face Models from MediaPipe
 mp_pose = mp.solutions.pose
 mp_hands = mp.solutions.hands
+mp_face_mesh = mp.solutions.face_mesh
 
 # Initialize models
 pose_model = mp_pose.Pose(
@@ -39,6 +40,14 @@ pose_model = mp_pose.Pose(
 hands_model = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
+face_model = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    refine_landmarks=True,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
@@ -58,7 +67,7 @@ game_state = {
     'pose_start_time': None,
     'game_phase': 'startup',  # 'startup', 'waiting', 'challenge', 'result'
     'challenge_duration': 5.0,  # 5 seconds to complete pose
-    'wait_duration': 7.0,      # 7 seconds between challenges
+    'wait_duration': 3.0,      # 3 seconds between challenges
     'startup_duration': 5.0,   # 5 seconds startup delay
     'score': 0,
     'round': 0,
@@ -66,20 +75,24 @@ game_state = {
 }
 
 # Available poses for the game
-available_poses = ['tpose', 'armcross', 'monkeyfinger']
+available_poses = ['tpose', 'armcross', 'monkeyfinger', 'shocked_face', 'spiderman']
 
 # Load pose reference images
 pose_images = {
     'tpose': cv.imread('./images/tpose.jpg'),
     'armcross': cv.imread('./images/armcross.jpg'),
-    'monkeyfinger': cv.imread('./images/monkeyfinger.png')
+    'monkeyfinger': cv.imread('./images/monkeyfinger.png'),
+    'shocked_face': cv.imread('./images/shocked_face.png'),
+    'spiderman': cv.imread('./images/spiderman.png')
 }
 
 # Dictionary to store detected poses
 detected_poses = {
     'tpose': False,
     'armcross': False,
-    'monkeyfinger': False
+    'monkeyfinger': False,
+    'shocked_face': False,
+    'spiderman': False
 }
 
 def calculate_angle(p1, p2, p3):
@@ -255,16 +268,166 @@ def detect_monkeyfinger(landmarks, hand_results=None):
 
     return is_monkeyfinger
 
-def detect_poses(pose_landmarks, hand_results=None):
+def detect_shocked_face(face_results):
+    """
+    Detect shocked face expression based on facial landmarks
+    Returns True if shocked face is detected
+    """
+    if not face_results or not face_results.multi_face_landmarks:
+        return False
+
+    # Get the first face landmarks
+    face_landmarks = face_results.multi_face_landmarks[0]
+    landmarks = face_landmarks.landmark
+
+    # Key facial landmark indices for shocked expression
+    # Eyes - upper and lower eyelids
+    left_eye_upper = landmarks[159]  # Left eye upper eyelid
+    left_eye_lower = landmarks[145]  # Left eye lower eyelid
+    right_eye_upper = landmarks[386] # Right eye upper eyelid
+    right_eye_lower = landmarks[374] # Right eye lower eyelid
+
+    # Mouth - corners and center points
+    mouth_left = landmarks[61]       # Left mouth corner
+    mouth_right = landmarks[291]     # Right mouth corner
+    mouth_top = landmarks[13]        # Upper lip center
+    mouth_bottom = landmarks[14]     # Lower lip center
+
+    # Eyebrows - inner and outer points
+    left_eyebrow_inner = landmarks[70]   # Left eyebrow inner
+    left_eyebrow_outer = landmarks[107]  # Left eyebrow outer
+    right_eyebrow_inner = landmarks[300] # Right eyebrow inner
+    right_eyebrow_outer = landmarks[336] # Right eyebrow outer
+
+    # Calculate eye openness (shocked eyes are wide open)
+    left_eye_height = abs(left_eye_upper.y - left_eye_lower.y)
+    right_eye_height = abs(right_eye_upper.y - right_eye_lower.y)
+    avg_eye_height = (left_eye_height + right_eye_height) / 2
+
+    # Calculate mouth openness (shocked mouth is open)
+    mouth_height = abs(mouth_top.y - mouth_bottom.y)
+    mouth_width = abs(mouth_left.x - mouth_right.x)
+
+    # Calculate eyebrow elevation (shocked eyebrows are raised)
+    left_eyebrow_height = abs(left_eyebrow_inner.y - left_eye_upper.y)
+    right_eyebrow_height = abs(right_eyebrow_inner.y - right_eye_upper.y)
+    avg_eyebrow_elevation = (left_eyebrow_height + right_eyebrow_height) / 2
+
+    # Shocked face conditions:
+    # 1. Wide open eyes (above threshold)
+    # 2. Open mouth (height relative to width)
+    # 3. Raised eyebrows (above eyes)
+    # 4. Symmetrical expression
+
+    wide_eyes = avg_eye_height > 0.015  # Eyes wide open
+    open_mouth = mouth_height > 0.02 and mouth_height > mouth_width * 0.3  # Mouth open in surprise
+    raised_eyebrows = avg_eyebrow_elevation > 0.025  # Eyebrows raised
+    symmetric_eyes = abs(left_eye_height - right_eye_height) < 0.008  # Eyes similarly open
+
+    is_shocked = (
+        wide_eyes and
+        open_mouth and
+        raised_eyebrows and
+        symmetric_eyes
+    )
+
+    return is_shocked
+
+def detect_spiderman(landmarks):
+    """
+    Detect Spiderman pose based on body landmarks only
+    Classic web-slinging pose: one arm extended forward, crouched stance, dynamic leg position
+    Returns True if Spiderman pose is detected
+    """
+    if not landmarks:
+        return False
+
+    # Get key landmarks for body pose
+    left_shoulder = landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
+    right_shoulder = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+    left_elbow = landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
+    right_elbow = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
+    left_wrist = landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
+    right_wrist = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
+
+    left_hip = landmarks.landmark[mp_pose.PoseLandmark.LEFT_HIP]
+    right_hip = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
+    left_knee = landmarks.landmark[mp_pose.PoseLandmark.LEFT_KNEE]
+    right_knee = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_KNEE]
+    left_ankle = landmarks.landmark[mp_pose.PoseLandmark.LEFT_ANKLE]
+    right_ankle = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ANKLE]
+
+    nose = landmarks.landmark[mp_pose.PoseLandmark.NOSE]
+
+    # Calculate arm angles and positions
+    left_arm_angle = calculate_angle(left_shoulder, left_elbow, left_wrist)
+    right_arm_angle = calculate_angle(right_shoulder, right_elbow, right_wrist)
+
+    # Calculate leg angles (hip-knee-ankle)
+    left_leg_angle = calculate_angle(left_hip, left_knee, left_ankle)
+    right_leg_angle = calculate_angle(right_hip, right_knee, right_ankle)
+
+    # Check for one arm extended forward (Spiderman web-shooting pose)
+    # One arm should be more extended than the other
+    left_arm_extended = left_arm_angle > 140 and left_wrist.x > left_shoulder.x
+    right_arm_extended = right_arm_angle > 140 and right_wrist.x < right_shoulder.x
+
+    # At least one arm should be extended forward
+    one_arm_forward = left_arm_extended or right_arm_extended
+
+    # Check for crouched/action stance
+    # Body should be leaning forward (nose ahead of hips)
+    hip_center_x = (left_hip.x + right_hip.x) / 2
+    body_leaning_forward = nose.x > hip_center_x - 0.05  # Slight forward lean tolerance
+
+    # Check leg positioning - one or both legs should be bent (action stance)
+    left_leg_bent = left_leg_angle < 160  # Leg bent for dynamic pose
+    right_leg_bent = right_leg_angle < 160
+    dynamic_legs = left_leg_bent or right_leg_bent
+
+    # Check for asymmetric arm positioning (characteristic of Spiderman pose)
+    arm_height_diff = abs(left_wrist.y - right_wrist.y) > 0.1  # Arms at different heights
+
+    # Check body crouch - hips should be lower than shoulders (crouched stance)
+    hip_center_y = (left_hip.y + right_hip.y) / 2
+    shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2
+    crouched_stance = hip_center_y > shoulder_center_y + 0.05  # Hips lower than shoulders
+
+    # Spiderman pose conditions:
+    # 1. One arm extended forward (web-shooting)
+    # 2. Dynamic leg positioning (bent/action stance)
+    # 3. Body leaning forward or crouched
+    # 4. Asymmetric arm positioning
+    # 5. All key landmarks visible
+
+    is_spiderman = (
+        one_arm_forward and
+        dynamic_legs and
+        (body_leaning_forward or crouched_stance) and
+        arm_height_diff and
+        # Visibility checks
+        left_shoulder.visibility > 0.5 and right_shoulder.visibility > 0.5 and
+        left_elbow.visibility > 0.5 and right_elbow.visibility > 0.5 and
+        left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5 and
+        left_hip.visibility > 0.5 and right_hip.visibility > 0.5 and
+        left_knee.visibility > 0.5 and right_knee.visibility > 0.5 and
+        nose.visibility > 0.5
+    )
+
+    return is_spiderman
+
+def detect_poses(pose_landmarks, hand_results=None, face_results=None):
     """
     Unified pose detection function that checks all poses
-    Now includes hand data for enhanced detection accuracy
+    Now includes hand and face data for enhanced detection accuracy
     Returns dictionary with detected poses
     """
     poses = {
         'tpose': detect_tpose(pose_landmarks),
         'armcross': detect_armcross(pose_landmarks),
-        'monkeyfinger': detect_monkeyfinger(pose_landmarks, hand_results)
+        'monkeyfinger': detect_monkeyfinger(pose_landmarks, hand_results),
+        'shocked_face': detect_shocked_face(face_results),
+        'spiderman': detect_spiderman(pose_landmarks)
     }
     return poses
 
@@ -395,18 +558,20 @@ while True:
         # Convert color format to the default BGR to RGB
         image = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
-        # Making predictions using pose and hand models
+        # Making predictions using pose, hand, and face models
         # To improve performance, optionally mark the image as not writeable to
         # pass by reference.
         image.flags.writeable = False
         pose_results = pose_model.process(image)
         hand_results = hands_model.process(image)
+        face_results = face_model.process(image)
         image.flags.writeable = True
 
-        # Store results for reuse (combine both results)
+        # Store results for reuse (combine all results)
         results = {
             'pose': pose_results,
-            'hands': hand_results
+            'hands': hand_results,
+            'face': face_results
         }
         last_results = results
 
@@ -437,8 +602,8 @@ while True:
         #     )
         # )
 
-        # Detect all poses using both hand and pose data
-        current_poses = detect_poses(results['pose'].pose_landmarks, results['hands'])
+        # Detect all poses using pose, hand, and face data
+        current_poses = detect_poses(results['pose'].pose_landmarks, results['hands'], results['face'])
         detected_poses.update(current_poses)
 
         # Game logic: Check challenge completion
@@ -453,7 +618,7 @@ while True:
                 y_offset += 30
     else:
         # No pose detected
-        detected_poses = {'tpose': False, 'armcross': False, 'monkeyfinger': False}
+        detected_poses = {'tpose': False, 'armcross': False, 'monkeyfinger': False, 'shocked_face': False, 'spiderman': False}
         # Game logic still needs to run even without pose detection
         check_challenge_completion(detected_poses)
 
