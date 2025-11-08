@@ -58,7 +58,13 @@ mp_drawing = mp.solutions.drawing_utils
 pygame.mixer.init()
 
 # Load sound effects
-success_sound = pygame.mixer.Sound('./sfx/ding.mp3')
+pose_sounds = {
+    'tpose': pygame.mixer.Sound('./sfx/vine-boom.mp3'),
+    'armcross': pygame.mixer.Sound('./sfx/i-i-i-be-poppin-bottles.mp3'),
+    'monkeyfinger': pygame.mixer.Sound('./sfx/ding.mp3'),
+    'shocked_face': pygame.mixer.Sound('./sfx/faaah.mp3'),
+    'spiderman': pygame.mixer.Sound('./sfx/spiderman-meme-song.mp3')
+}
 failure_sound = pygame.mixer.Sound('./sfx/bo-womp.mp3')
 
 # Game state variables
@@ -450,7 +456,7 @@ def check_challenge_completion(detected_poses):
     # Check if pose was detected
     if detected_poses.get(game_state['current_pose'], False):
         # Success! Play success sound and update score
-        success_sound.play()
+        pose_sounds[game_state['current_pose']].play()
         game_state['score'] += 1
         game_state['game_phase'] = 'result'
         game_state['pose_start_time'] = current_time
