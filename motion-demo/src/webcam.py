@@ -35,7 +35,7 @@ pose_model = mp_pose.Pose(
 mp_drawing = mp.solutions.drawing_utils
 
 # Load T-pose image
-tpose_image = cv.imread('/home/allnats/Hackathon/stupid-hackathon/motion-demo/images/tpose.jpg')
+tpose_image = cv.imread('./images/tpose.jpg')
 tpose_detected = False
 
 def detect_tpose(landmarks):
