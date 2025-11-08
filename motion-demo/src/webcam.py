@@ -3,6 +3,8 @@ import cv2 as cv
 import mediapipe as mp
 import time
 import numpy as np
+import random
+import pygame
 
 print(cv.__version__)
 
@@ -42,6 +44,29 @@ hands_model = mp_hands.Hands(
 )
 
 mp_drawing = mp.solutions.drawing_utils
+
+# Initialize pygame mixer for sound effects
+pygame.mixer.init()
+
+# Load sound effects
+success_sound = pygame.mixer.Sound('./sfx/ding.mp3')
+failure_sound = pygame.mixer.Sound('./sfx/bo-womp.mp3')
+
+# Game state variables
+game_state = {
+    'current_pose': None,
+    'pose_start_time': None,
+    'game_phase': 'startup',  # 'startup', 'waiting', 'challenge', 'result'
+    'challenge_duration': 5.0,  # 5 seconds to complete pose
+    'wait_duration': 7.0,      # 7 seconds between challenges
+    'startup_duration': 5.0,   # 5 seconds startup delay
+    'score': 0,
+    'round': 0,
+    'app_start_time': time.time()  # Record when app started
+}
+
+# Available poses for the game
+available_poses = ['tpose', 'armcross', 'monkeyfinger']
 
 # Load pose reference images
 pose_images = {
@@ -243,6 +268,113 @@ def detect_poses(pose_landmarks, hand_results=None):
     }
     return poses
 
+def start_new_challenge():
+    """Start a new pose challenge"""
+    game_state['current_pose'] = random.choice(available_poses)
+    game_state['pose_start_time'] = time.time()
+    game_state['game_phase'] = 'challenge'
+    game_state['round'] += 1
+    print(f"Round {game_state['round']}: Show me a {game_state['current_pose'].upper()}!")
+
+def check_challenge_completion(detected_poses):
+    """Check if current challenge is completed"""
+    if game_state['game_phase'] != 'challenge':
+        return
+
+    current_time = time.time()
+    elapsed_time = current_time - game_state['pose_start_time']
+
+    # Check if pose was detected
+    if detected_poses.get(game_state['current_pose'], False):
+        # Success! Play success sound and update score
+        success_sound.play()
+        game_state['score'] += 1
+        game_state['game_phase'] = 'result'
+        game_state['pose_start_time'] = current_time
+        print(f"SUCCESS! Score: {game_state['score']}")
+        return True
+
+    # Check if time ran out
+    elif elapsed_time >= game_state['challenge_duration']:
+        # Failure! Play failure sound
+        failure_sound.play()
+        game_state['game_phase'] = 'result'
+        game_state['pose_start_time'] = current_time
+        print(f"TIME'S UP! Score: {game_state['score']}")
+        return False
+
+    return None
+
+def update_game_state():
+    """Update game state based on current phase"""
+    current_time = time.time()
+
+    if game_state['game_phase'] == 'startup':
+        # Check if startup period is over
+        if current_time - game_state['app_start_time'] >= game_state['startup_duration']:
+            game_state['game_phase'] = 'waiting'
+            game_state['pose_start_time'] = current_time
+            print("Game starting! Get ready for your first challenge!")
+
+    elif game_state['game_phase'] == 'waiting':
+        # Start first challenge or check if wait period is over
+        if game_state['pose_start_time'] is None:
+            start_new_challenge()
+        elif current_time - game_state['pose_start_time'] >= game_state['wait_duration']:
+            start_new_challenge()
+
+    elif game_state['game_phase'] == 'result':
+        # Wait before starting next challenge
+        if current_time - game_state['pose_start_time'] >= game_state['wait_duration']:
+            game_state['game_phase'] = 'waiting'
+            game_state['pose_start_time'] = current_time
+
+def draw_game_ui(image):
+    """Draw game UI elements on the image"""
+    current_time = time.time()
+
+    if game_state['game_phase'] == 'startup':
+        # Draw startup countdown
+        elapsed_time = current_time - game_state['app_start_time']
+        remaining_time = max(0, game_state['startup_duration'] - elapsed_time)
+
+        cv.putText(image, "POSE CHALLENGE GAME", (150, 250), cv.FONT_HERSHEY_COMPLEX, 1.5, (255,255,255), 3)
+        cv.putText(image, f"Starting in: {remaining_time:.1f}s", (200, 300), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,255), 3)
+        cv.putText(image, "Get ready to strike a pose!", (150, 350), cv.FONT_HERSHEY_COMPLEX, 0.8, (255,255,0), 2)
+
+    elif game_state['game_phase'] == 'challenge':
+        # Draw countdown timer
+        elapsed_time = current_time - game_state['pose_start_time']
+        remaining_time = max(0, game_state['challenge_duration'] - elapsed_time)
+
+        # Draw challenge info
+        pose_name = game_state['current_pose'].upper().replace('_', ' ')
+        cv.putText(image, f"POSE: {pose_name}", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,0), 3)
+        cv.putText(image, f"TIME: {remaining_time:.1f}s", (10, 240), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,255), 3)
+
+        # Show reference image
+        if pose_images[game_state['current_pose']] is not None:
+            cv.imshow(f"Challenge: {pose_name}", pose_images[game_state['current_pose']])
+
+    elif game_state['game_phase'] == 'result':
+        elapsed_time = current_time - game_state['pose_start_time']
+        remaining_wait = max(0, game_state['wait_duration'] - elapsed_time)
+        cv.putText(image, f"Next challenge in: {remaining_wait:.1f}s", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,255), 2)
+
+        # Close challenge window
+        try:
+            cv.destroyWindow(f"Challenge: {game_state['current_pose'].upper().replace('_', ' ')}")
+        except cv.error:
+            pass
+
+    elif game_state['game_phase'] == 'waiting':
+        cv.putText(image, "Get Ready!", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,255), 3)
+
+    # Show score and round (except during startup)
+    if game_state['game_phase'] != 'startup':
+        cv.putText(image, f"Score: {game_state['score']}", (10, 280), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
+        cv.putText(image, f"Round: {game_state['round']}", (10, 320), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
+
 
 while True:
     # Capture frame-by-frame
@@ -309,53 +441,27 @@ while True:
         current_poses = detect_poses(results['pose'].pose_landmarks, results['hands'])
         detected_poses.update(current_poses)
 
-        # Handle T-pose detection
-        if current_poses['tpose']:
-            cv.putText(image, "T-POSE DETECTED!", (10, 40), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
-            if pose_images['tpose'] is not None:
-                cv.imshow("T-Pose Reference", pose_images['tpose'])
-        else:
-            try:
-                cv.destroyWindow("T-Pose Reference")
-            except cv.error:
-                pass
+        # Game logic: Check challenge completion
+        check_challenge_completion(current_poses)
 
-        # Handle arm cross detection
-        if current_poses['armcross']:
-            cv.putText(image, "ARM CROSS DETECTED!", (10, 110), cv.FONT_HERSHEY_COMPLEX, 1, (255,0,0), 2)
-            if pose_images['armcross'] is not None:
-                cv.imshow("Arm Cross Reference", pose_images['armcross'])
-        else:
-            try:
-                cv.destroyWindow("Arm Cross Reference")
-            except cv.error:
-                pass
-
-        # Handle monkey finger detection
-        if current_poses['monkeyfinger']:
-            cv.putText(image, "MONKEY FINGER DETECTED!", (10, 150), cv.FONT_HERSHEY_COMPLEX, 1, (0,165,255), 2)
-            if pose_images['monkeyfinger'] is not None:
-                cv.imshow("Monkey Finger Reference", pose_images['monkeyfinger'])
-        else:
-            try:
-                cv.destroyWindow("Monkey Finger Reference")
-            except cv.error:
-                pass
+        # Show detected poses (for debugging/feedback)
+        y_offset = 40
+        for pose_name, detected in current_poses.items():
+            if detected:
+                pose_display = pose_name.upper().replace('_', ' ')
+                cv.putText(image, f"{pose_display} DETECTED!", (400, y_offset), cv.FONT_HERSHEY_COMPLEX, 0.7, (0,255,0), 2)
+                y_offset += 30
     else:
-        # No pose detected, make sure all pose windows are closed
+        # No pose detected
         detected_poses = {'tpose': False, 'armcross': False, 'monkeyfinger': False}
-        try:
-            cv.destroyWindow("T-Pose Reference")
-        except cv.error:
-            pass
-        try:
-            cv.destroyWindow("Arm Cross Reference")
-        except cv.error:
-            pass
-        try:
-            cv.destroyWindow("Monkey Finger Reference")
-        except cv.error:
-            pass
+        # Game logic still needs to run even without pose detection
+        check_challenge_completion(detected_poses)
+
+    # Update game state
+    update_game_state()
+
+    # Draw game UI
+    draw_game_ui(image)
 
     # Calculating the FPS
     currentTime = time.time()
@@ -378,3 +484,4 @@ while True:
 
 cap.release()
 cv.destroyAllWindows()
+pygame.mixer.quit()
