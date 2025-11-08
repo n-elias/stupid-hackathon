@@ -34,9 +34,33 @@ pose_model = mp_pose.Pose(
 
 mp_drawing = mp.solutions.drawing_utils
 
-# Load T-pose image
-tpose_image = cv.imread('./images/tpose.jpg')
-tpose_detected = False
+# Load pose reference images
+pose_images = {
+    'tpose': cv.imread('./images/tpose.jpg'),
+    'armcross': cv.imread('./images/armcross.jpg')
+}
+
+# Dictionary to store detected poses
+detected_poses = {
+    'tpose': False,
+    'armcross': False
+}
+
+def calculate_angle(p1, p2, p3):
+    """Calculate angle between three points"""
+    v1 = np.array([p1.x - p2.x, p1.y - p2.y])
+    v2 = np.array([p3.x - p2.x, p3.y - p2.y])
+
+    dot_product = np.dot(v1, v2)
+    norms = np.linalg.norm(v1) * np.linalg.norm(v2)
+
+    if norms == 0:
+        return 0
+
+    cos_angle = dot_product / norms
+    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+    angle = np.arccos(cos_angle)
+    return np.degrees(angle)
 
 def detect_tpose(landmarks):
     """
@@ -53,23 +77,6 @@ def detect_tpose(landmarks):
     right_elbow = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
     left_wrist = landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
     right_wrist = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
-
-    # Calculate arm angles (shoulder-elbow-wrist)
-    def calculate_angle(p1, p2, p3):
-        """Calculate angle between three points"""
-        v1 = np.array([p1.x - p2.x, p1.y - p2.y])
-        v2 = np.array([p3.x - p2.x, p3.y - p2.y])
-
-        dot_product = np.dot(v1, v2)
-        norms = np.linalg.norm(v1) * np.linalg.norm(v2)
-
-        if norms == 0:
-            return 0
-
-        cos_angle = dot_product / norms
-        cos_angle = np.clip(cos_angle, -1.0, 1.0)
-        angle = np.arccos(cos_angle)
-        return np.degrees(angle)
 
     # Check if arms are extended horizontally (T-pose criteria)
     left_arm_angle = calculate_angle(left_shoulder, left_elbow, left_wrist)
@@ -92,6 +99,63 @@ def detect_tpose(landmarks):
     )
 
     return is_tpose
+
+def detect_armcross(landmarks):
+    """
+    Detect arm cross pose based on arm positions
+    Returns True if arm cross pose is detected
+    """
+    if not landmarks:
+        return False
+
+    # Get key landmarks
+    left_shoulder = landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
+    right_shoulder = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+    left_elbow = landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
+    right_elbow = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
+    left_wrist = landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
+    right_wrist = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
+
+    # Calculate arm angles (shoulder-elbow-wrist)
+    left_arm_angle = calculate_angle(left_shoulder, left_elbow, left_wrist)
+    right_arm_angle = calculate_angle(right_shoulder, right_elbow, right_wrist)
+
+    # Check if arms are crossed (wrists are closer to opposite shoulders)
+    left_wrist_to_right_shoulder = abs(left_wrist.x - right_shoulder.x)
+    right_wrist_to_left_shoulder = abs(right_wrist.x - left_shoulder.x)
+    shoulder_distance = abs(left_shoulder.x - right_shoulder.x)
+
+    # Check if elbows are at reasonable height (not too low)
+    left_elbow_height = left_elbow.y < left_shoulder.y + 0.2
+    right_elbow_height = right_elbow.y < right_shoulder.y + 0.2
+
+    # Arm cross conditions:
+    # 1. Arms are bent (angle less than 120 degrees)
+    # 2. Wrists are crossed over to opposite sides
+    # 3. Elbows are at reasonable height
+    # 4. All landmarks are visible
+    is_armcross = (
+        left_arm_angle < 120 and right_arm_angle < 120 and  # Arms bent
+        left_wrist_to_right_shoulder < shoulder_distance * 1.5 and  # Left wrist near right side
+        right_wrist_to_left_shoulder < shoulder_distance * 1.5 and  # Right wrist near left side
+        left_elbow_height and right_elbow_height and  # Elbows at reasonable height
+        left_shoulder.visibility > 0.5 and right_shoulder.visibility > 0.5 and
+        left_elbow.visibility > 0.5 and right_elbow.visibility > 0.5 and
+        left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5
+    )
+
+    return is_armcross
+
+def detect_poses(landmarks):
+    """
+    Unified pose detection function that checks all poses
+    Returns dictionary with detected poses
+    """
+    poses = {
+        'tpose': detect_tpose(landmarks),
+        'armcross': detect_armcross(landmarks)
+    }
+    return poses
 
 
 while True:
@@ -149,28 +213,40 @@ while True:
             )
         )
 
-        # Detect T-pose
-        current_tpose = detect_tpose(results.pose_landmarks)
+        # Detect all poses
+        current_poses = detect_poses(results.pose_landmarks)
+        detected_poses.update(current_poses)
 
-        if current_tpose:
-            tpose_detected = True
-            # Display T-pose status on main image
+        # Handle T-pose detection
+        if current_poses['tpose']:
             cv.putText(image, "T-POSE DETECTED!", (10, 40), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
-            # Show T-pose image
-            if tpose_image is not None:
-                cv.imshow("T-Pose Reference", tpose_image)
+            if pose_images['tpose'] is not None:
+                cv.imshow("T-Pose Reference", pose_images['tpose'])
         else:
-            tpose_detected = False
-            # Remove T-pose image window if it exists
             try:
                 cv.destroyWindow("T-Pose Reference")
             except cv.error:
                 pass
+
+        # Handle arm cross detection
+        if current_poses['armcross']:
+            cv.putText(image, "ARM CROSS DETECTED!", (10, 110), cv.FONT_HERSHEY_COMPLEX, 1, (255,0,0), 2)
+            if pose_images['armcross'] is not None:
+                cv.imshow("Arm Cross Reference", pose_images['armcross'])
+        else:
+            try:
+                cv.destroyWindow("Arm Cross Reference")
+            except cv.error:
+                pass
     else:
-        # No pose detected, make sure T-pose window is closed
-        tpose_detected = False
+        # No pose detected, make sure all pose windows are closed
+        detected_poses = {'tpose': False, 'armcross': False}
         try:
             cv.destroyWindow("T-Pose Reference")
+        except cv.error:
+            pass
+        try:
+            cv.destroyWindow("Arm Cross Reference")
         except cv.error:
             pass
 
