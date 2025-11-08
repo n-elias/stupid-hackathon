@@ -2,6 +2,7 @@
 import cv2 as cv
 import mediapipe as mp
 import time
+import numpy as np
 
 print(cv.__version__)
 
@@ -32,6 +33,65 @@ pose_model = mp_pose.Pose(
 )
 
 mp_drawing = mp.solutions.drawing_utils
+
+# Load T-pose image
+tpose_image = cv.imread('/home/allnats/Hackathon/stupid-hackathon/motion-demo/images/tpose.jpg')
+tpose_detected = False
+
+def detect_tpose(landmarks):
+    """
+    Detect T-pose based on arm angles and body posture
+    Returns True if T-pose is detected
+    """
+    if not landmarks:
+        return False
+
+    # Get key landmarks
+    left_shoulder = landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
+    right_shoulder = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+    left_elbow = landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
+    right_elbow = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
+    left_wrist = landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
+    right_wrist = landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
+
+    # Calculate arm angles (shoulder-elbow-wrist)
+    def calculate_angle(p1, p2, p3):
+        """Calculate angle between three points"""
+        v1 = np.array([p1.x - p2.x, p1.y - p2.y])
+        v2 = np.array([p3.x - p2.x, p3.y - p2.y])
+
+        dot_product = np.dot(v1, v2)
+        norms = np.linalg.norm(v1) * np.linalg.norm(v2)
+
+        if norms == 0:
+            return 0
+
+        cos_angle = dot_product / norms
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        angle = np.arccos(cos_angle)
+        return np.degrees(angle)
+
+    # Check if arms are extended horizontally (T-pose criteria)
+    left_arm_angle = calculate_angle(left_shoulder, left_elbow, left_wrist)
+    right_arm_angle = calculate_angle(right_shoulder, right_elbow, right_wrist)
+
+    # Check if arms are roughly horizontal
+    left_arm_horizontal = abs(left_elbow.y - left_shoulder.y) < 0.1
+    right_arm_horizontal = abs(right_elbow.y - right_shoulder.y) < 0.1
+
+    # T-pose conditions:
+    # 1. Arms are roughly straight (angle close to 180 degrees)
+    # 2. Arms are horizontal
+    # 3. Both arms are visible and confident
+    is_tpose = (
+        left_arm_angle > 150 and right_arm_angle > 150 and  # Arms extended
+        left_arm_horizontal and right_arm_horizontal and    # Arms horizontal
+        left_shoulder.visibility > 0.5 and right_shoulder.visibility > 0.5 and
+        left_elbow.visibility > 0.5 and right_elbow.visibility > 0.5 and
+        left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5
+    )
+
+    return is_tpose
 
 
 while True:
@@ -88,6 +148,31 @@ while True:
                 circle_radius=2
             )
         )
+
+        # Detect T-pose
+        current_tpose = detect_tpose(results.pose_landmarks)
+
+        if current_tpose:
+            tpose_detected = True
+            # Display T-pose status on main image
+            cv.putText(image, "T-POSE DETECTED!", (10, 40), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
+            # Show T-pose image
+            if tpose_image is not None:
+                cv.imshow("T-Pose Reference", tpose_image)
+        else:
+            tpose_detected = False
+            # Remove T-pose image window if it exists
+            try:
+                cv.destroyWindow("T-Pose Reference")
+            except cv.error:
+                pass
+    else:
+        # No pose detected, make sure T-pose window is closed
+        tpose_detected = False
+        try:
+            cv.destroyWindow("T-Pose Reference")
+        except cv.error:
+            pass
 
     # Calculating the FPS
     currentTime = time.time()
