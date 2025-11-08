@@ -507,9 +507,9 @@ def draw_game_ui(image):
         elapsed_time = current_time - game_state['app_start_time']
         remaining_time = max(0, game_state['startup_duration'] - elapsed_time)
 
-        cv.putText(image, "POSE CHALLENGE GAME", (150, 250), cv.FONT_HERSHEY_COMPLEX, 1.5, (255,255,255), 3)
-        cv.putText(image, f"Starting in: {remaining_time:.1f}s", (200, 300), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,255), 3)
-        cv.putText(image, "Get ready to strike a pose!", (150, 350), cv.FONT_HERSHEY_COMPLEX, 0.8, (255,255,0), 2)
+        cv.putText(image, "BRAINROT ROULETTE", (150, 250), cv.FONT_HERSHEY_SIMPLEX, 1.5, (28, 28, 28), 3)
+        cv.putText(image, f"starting in: {remaining_time:.1f}s", (200, 300), cv.FONT_HERSHEY_SIMPLEX, 1, (76, 96, 166), 3)
+        cv.putText(image, "how chronically online are you?", (150, 350), cv.FONT_HERSHEY_SIMPLEX, 0.8, (39, 41, 143), 2)
 
     elif game_state['game_phase'] == 'challenge':
         # Draw countdown timer
@@ -518,17 +518,16 @@ def draw_game_ui(image):
 
         # Draw challenge info
         pose_name = game_state['current_pose'].upper().replace('_', ' ')
-        cv.putText(image, f"POSE: {pose_name}", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,0), 3)
-        cv.putText(image, f"TIME: {remaining_time:.1f}s", (10, 240), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,255), 3)
+        cv.putText(image, f"TIME: {remaining_time:.1f}s", (10, 240), cv.FONT_HERSHEY_SIMPLEX, 1, (93, 54, 145), 3)
 
         # Show reference image
         if pose_images[game_state['current_pose']] is not None:
-            cv.imshow(f"Challenge: {pose_name}", pose_images[game_state['current_pose']])
+            cv.imshow(f"meme: {pose_name}", pose_images[game_state['current_pose']])
 
     elif game_state['game_phase'] == 'result':
         elapsed_time = current_time - game_state['pose_start_time']
         remaining_wait = max(0, game_state['wait_duration'] - elapsed_time)
-        cv.putText(image, f"Next challenge in: {remaining_wait:.1f}s", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,255), 2)
+        cv.putText(image, f"next meme: {remaining_wait:.1f}s", (10, 200), cv.FONT_HERSHEY_SIMPLEX, 1, (28, 28, 28), 2)
 
         # Close challenge window
         try:
@@ -537,12 +536,12 @@ def draw_game_ui(image):
             pass
 
     elif game_state['game_phase'] == 'waiting':
-        cv.putText(image, "Get Ready!", (10, 200), cv.FONT_HERSHEY_COMPLEX, 1, (255,255,255), 3)
+        cv.putText(image, "Get Ready!", (10, 200), cv.FONT_HERSHEY_SIMPLEX, 1, (28, 28, 28), 3)
 
     # Show score and round (except during startup)
     if game_state['game_phase'] != 'startup':
-        cv.putText(image, f"Score: {game_state['score']}", (10, 280), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
-        cv.putText(image, f"Round: {game_state['round']}", (10, 320), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
+        cv.putText(image, f"Score: {game_state['score']}", (10, 280), cv.FONT_HERSHEY_SIMPLEX, 1, (54, 54, 54), 2)
+        cv.putText(image, f"Round: {game_state['round']}", (10, 320), cv.FONT_HERSHEY_SIMPLEX, 1, (54, 54, 54), 2)
 
 
 while True:
@@ -555,7 +554,7 @@ while True:
         break
 
     # Resize the frame
-    frame = cv.resize(frame, (800, 600))
+    frame = cv.resize(frame, (1920, 1080))
 
     # Frame skipping logic - only process MediaPipe on certain frames
     frame_count += 1
@@ -620,7 +619,7 @@ while True:
         for pose_name, detected in current_poses.items():
             if detected:
                 pose_display = pose_name.upper().replace('_', ' ')
-                cv.putText(image, f"{pose_display} DETECTED!", (400, y_offset), cv.FONT_HERSHEY_COMPLEX, 0.7, (0,255,0), 2)
+                cv.putText(image, f"{pose_display} DETECTED!", (400, y_offset), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
                 y_offset += 30
     else:
         # No pose detected
@@ -640,7 +639,7 @@ while True:
     previousTime = currentTime
 
     # Displaying FPS on the image
-    cv.putText(image, str(int(fps))+" FPS", (10, 70), cv.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
+    cv.putText(image, str(int(fps))+" FPS", (10, 70), cv.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
     # Displays the frame.
     cv.imshow(
